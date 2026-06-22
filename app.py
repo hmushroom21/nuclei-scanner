@@ -1,5 +1,6 @@
 from flask import Flask, request, render_template
 import subprocess
+import os
 
 app = Flask(__name__)
 
@@ -9,7 +10,12 @@ def home():
 
 @app.route("/scan", methods=["POST"])
 def scan():
-    target = request.form["target"]
+    target = request.form.get("target", "").strip()
+
+    if not target:
+        return "Please enter a target URL."
+
+    os.makedirs("results", exist_ok=True)
 
     cmd = [
         "nuclei",
@@ -19,9 +25,13 @@ def scan():
         "results/output.json"
     ]
 
-    subprocess.run(cmd)
-
-    return "Scan completed"
+    try:
+        subprocess.run(cmd, check=True, timeout=120)
+        return "Scan completed. Results saved to results/output.json"
+    except subprocess.TimeoutExpired:
+        return "Scan took too long and was stopped."
+    except subprocess.CalledProcessError as e:
+        return f"Scan failed: {e}"
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
