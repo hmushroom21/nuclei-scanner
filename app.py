@@ -1,55 +1,67 @@
-from flask import Flask, request, render_template
-import subprocess
-import os
+from flask import Flask, request
+import subprocess, os
 
 app = Flask(__name__)
-
 os.makedirs("results", exist_ok=True)
+
+HTML = """<!DOCTYPE html>
+<html>
+<head>
+  <title>Nuclei Scanner</title>
+  <style>
+    body { font-family: sans-serif; max-width: 520px; margin: 60px auto; }
+    input { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; }
+    button { padding: 8px 20px; }
+    pre { background: #111; color: #0f0; padding: 12px; border-radius: 6px;
+          white-space: pre-wrap; font-size: 0.85em; }
+    small { color: #888; }
+  </style>
+</head>
+<body>
+  <h1>Nuclei Scanner</h1>
+  <form method="post" action="/scan">
+    <input name="target" placeholder="https://example.com" required>
+    <button type="submit">Scan</button>
+  </form>
+  <small>⚠️ Scans may take several minutes on the free tier.</small>
+  {result}
+</body>
+</html>"""
 
 
 @app.route("/")
 def home():
-    return render_template("index.html")
+    return HTML.format(result="")
 
 
 @app.route("/scan", methods=["POST"])
 def scan():
     target = request.form.get("target", "").strip()
 
-    if not target:
-        return "Error: No target provided.", 400
-
     if not target.startswith(("http://", "https://")):
-        return "Error: Target must start with http:// or https://", 400
+        return HTML.format(result="<pre>Error: Target must start with http:// or https://</pre>")
 
     cmd = [
         "nuclei",
         "-u", target,
-        "-json-export", "results/output.json",
-        "-c", "3",           # only 3 concurrent templates (very low CPU)
-        "-rl", "5",          # 5 requests/sec rate limit
-        "-timeout", "5",     # 5s per request
-        "-silent",           # no banner
-        "-no-update-check",  # skip version check (saves memory + network)
+        "-c", "3",
+        "-rl", "5",
+        "-timeout", "5",
+        "-silent",
+        "-no-update-check",
         "-disable-update-check",
+        "-json-export", "results/output.json",
     ]
 
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=240
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=240)
         output = result.stdout.strip() or "Scan completed — no findings."
-        if result.returncode != 0 and result.stderr:
-            output += f"\n[stderr]: {result.stderr.strip()}"
     except subprocess.TimeoutExpired:
-        output = "Scan timed out. Try a more specific target or fewer templates."
+        output = "Scan timed out (4 min limit)."
     except Exception as e:
-        output = f"Scan error: {str(e)}"
+        output = f"Error: {e}"
 
-    return f"<pre style='white-space:pre-wrap'>{output}</pre><br><a href='/'>← Back</a>"
+    return HTML.format(result=f"<pre>{output}</pre>")
 
 
 if __name__ == "__main__":
