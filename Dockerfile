@@ -12,4 +12,6 @@ RUN /app/venv/bin/pip install -r requirements.txt
 
 EXPOSE 10000
 
-CMD ["/app/venv/bin/python", "app.py"]
+ENTRYPOINT []
+
+CMD ["/app/venv/bin/gunicorn", "app:app", "--bind", "0.0.0.0:10000"]
