@@ -4,7 +4,6 @@ import os
 
 app = Flask(__name__)
 
-# Ensure results dir exists at startup
 os.makedirs("results", exist_ok=True)
 
 
@@ -20,7 +19,6 @@ def scan():
     if not target:
         return "Error: No target provided.", 400
 
-    # Basic validation — must start with http:// or https://
     if not target.startswith(("http://", "https://")):
         return "Error: Target must start with http:// or https://", 400
 
@@ -28,10 +26,12 @@ def scan():
         "nuclei",
         "-u", target,
         "-json-export", "results/output.json",
-        "-c", "5",          # max 5 concurrent templates (low CPU)
-        "-rl", "10",        # rate limit: 10 requests/sec
-        "-timeout", "5",    # 5s per request timeout
-        "-silent",          # suppress banner output
+        "-c", "3",           # only 3 concurrent templates (very low CPU)
+        "-rl", "5",          # 5 requests/sec rate limit
+        "-timeout", "5",     # 5s per request
+        "-silent",           # no banner
+        "-no-update-check",  # skip version check (saves memory + network)
+        "-disable-update-check",
     ]
 
     try:
@@ -39,17 +39,17 @@ def scan():
             cmd,
             capture_output=True,
             text=True,
-            timeout=240  # kill after 4 min to stay under gunicorn's 300s
+            timeout=240
         )
-        output = result.stdout or "Scan completed with no output."
-        if result.returncode != 0:
-            output += f"\n[stderr]: {result.stderr}"
+        output = result.stdout.strip() or "Scan completed — no findings."
+        if result.returncode != 0 and result.stderr:
+            output += f"\n[stderr]: {result.stderr.strip()}"
     except subprocess.TimeoutExpired:
         output = "Scan timed out. Try a more specific target or fewer templates."
     except Exception as e:
         output = f"Scan error: {str(e)}"
 
-    return f"<pre>{output}</pre><br><a href='/'>← Back</a>"
+    return f"<pre style='white-space:pre-wrap'>{output}</pre><br><a href='/'>← Back</a>"
 
 
 if __name__ == "__main__":
