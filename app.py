@@ -9,12 +9,12 @@ HTML = """<!DOCTYPE html>
 <head>
   <title>Nuclei Scanner</title>
   <style>
-    body { font-family: sans-serif; max-width: 520px; margin: 60px auto; }
-    input { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; }
-    button { padding: 8px 20px; }
-    pre { background: #111; color: #0f0; padding: 12px; border-radius: 6px;
-          white-space: pre-wrap; font-size: 0.85em; }
-    small { color: #888; }
+    body {{ font-family: sans-serif; max-width: 520px; margin: 60px auto; }}
+    input {{ width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; }}
+    button {{ padding: 8px 20px; }}
+    pre {{ background: #111; color: #0f0; padding: 12px; border-radius: 6px;
+          white-space: pre-wrap; font-size: 0.85em; }}
+    small {{ color: #888; }}
   </style>
 </head>
 <body>
@@ -44,7 +44,7 @@ def scan():
     cmd = [
         "nuclei",
         "-u", target,
-        "-tags", "tech-detect",    # lightweight tag only — no full template library
+        "-tags", "tech-detect",
         "-c", "3",
         "-rl", "5",
         "-timeout", "5",
