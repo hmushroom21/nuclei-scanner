@@ -12,9 +12,8 @@ RUN pip install flask gunicorn --break-system-packages --quiet --root-user-actio
 
 RUN mkdir -p results
 
-# Download templates at build time inside a temp scan so nuclei initialises fully
-RUN nuclei -update-templates -silent; \
-    nuclei -u https://example.com -silent -timeout 3 -c 1 || true
+# Download templates at build time only — no dummy scan
+RUN nuclei -update-templates -silent
 
 EXPOSE 10000
 
