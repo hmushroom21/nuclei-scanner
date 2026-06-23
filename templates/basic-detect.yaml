@@ -1,0 +1,26 @@
+id: basic-http-detect
+
+info:
+  name: Basic HTTP Detection
+  author: student
+  severity: info
+  tags: tech-detect
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}"
+
+    matchers:
+      - type: status
+        status:
+          - 200
+          - 301
+          - 302
+          - 403
+
+    extractors:
+      - type: regex
+        part: body
+        regex:
+          - "<title>(.*?)</title>"
