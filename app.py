@@ -1,8 +1,10 @@
 from flask import Flask, request
-import subprocess, os
+import subprocess
+import os
 import html
 
 app = Flask(__name__)
+
 os.makedirs("results", exist_ok=True)
 
 HTML = """<!DOCTYPE html>
@@ -10,21 +12,65 @@ HTML = """<!DOCTYPE html>
 <head>
   <title>Nuclei Scanner</title>
   <style>
-    body {{ font-family: sans-serif; max-width: 520px; margin: 60px auto; }}
-    input {{ width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; }}
-    button {{ padding: 8px 20px; }}
-    pre {{ background: #111; color: #0f0; padding: 12px; border-radius: 6px;
-          white-space: pre-wrap; font-size: 0.85em; }}
-    small {{ color: #888; }}
+    body {{
+      font-family: sans-serif;
+      max-width: 650px;
+      margin: 60px auto;
+      padding: 0 20px;
+    }}
+
+    h1 {{
+      font-size: 42px;
+      margin-bottom: 30px;
+    }}
+
+    input {{
+      width: 100%;
+      padding: 12px;
+      margin-bottom: 15px;
+      box-sizing: border-box;
+      font-size: 16px;
+    }}
+
+    button {{
+      padding: 10px 25px;
+      font-size: 16px;
+      cursor: pointer;
+    }}
+
+    pre {{
+      background: #111;
+      color: #0f0;
+      padding: 15px;
+      border-radius: 6px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      font-size: 0.9em;
+      margin-top: 25px;
+    }}
+
+    small {{
+      color: #888;
+      display: block;
+      margin-top: 10px;
+    }}
+
+    .error {{
+      color: #ff6b6b;
+    }}
   </style>
 </head>
 <body>
   <h1>Nuclei Scanner</h1>
+
   <form method="post" action="/scan">
     <input name="target" placeholder="https://example.com" required>
     <button type="submit">Scan</button>
   </form>
-  <small>⚠️ Scans may take a few minutes.</small>
+
+  <small>⚠️ Only scan websites you own or have permission to test.</small>
+  <small>Scans may take a few minutes.</small>
+
   {result}
 </body>
 </html>"""
@@ -45,14 +91,21 @@ def scan():
     target = request.form.get("target", "").strip()
 
     if not target.startswith(("http://", "https://")):
-        return HTML.format(result="<pre>Error: Target must start with http:// or https://</pre>")
+        error_message = "Error: Target must start with http:// or https://"
+        return HTML.format(result=f"<pre class='error'>{html.escape(error_message)}</pre>")
+
+    template_path = "templates/basic-detect.yaml"
+
+    if not os.path.exists(template_path):
+        error_message = "Error: Template file not found. Make sure templates/basic-detect.yaml exists."
+        return HTML.format(result=f"<pre class='error'>{html.escape(error_message)}</pre>")
 
     cmd = [
         "nuclei",
         "-u", target,
-        "-tags", "tech-detect",
-        "-c", "3",
-        "-rl", "5",
+        "-t", template_path,
+        "-c", "1",
+        "-rl", "2",
         "-timeout", "5",
         "-silent",
         "-duc",
@@ -60,7 +113,12 @@ def scan():
     ]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=240)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=180
+        )
 
         output = result.stdout.strip()
 
@@ -71,13 +129,16 @@ def scan():
             output = "Scan completed — no findings."
 
     except subprocess.TimeoutExpired:
-        output = "Scan timed out because it took more than 4 minutes."
+        output = "Scan timed out because it took more than 3 minutes."
+
     except Exception as e:
         output = f"Error: {e}"
 
     safe_output = html.escape(output)
+
     return HTML.format(result=f"<pre>{safe_output}</pre>")
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
