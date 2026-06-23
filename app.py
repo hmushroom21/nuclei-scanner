@@ -5,8 +5,6 @@ import html
 
 app = Flask(__name__)
 
-os.makedirs("results", exist_ok=True)
-
 HTML = """<!DOCTYPE html>
 <html>
 <head>
@@ -49,14 +47,14 @@ HTML = """<!DOCTYPE html>
       margin-top: 25px;
     }}
 
+    .error {{
+      color: #ff6b6b;
+    }}
+
     small {{
       color: #888;
       display: block;
       margin-top: 10px;
-    }}
-
-    .error {{
-      color: #ff6b6b;
     }}
   </style>
 </head>
@@ -69,7 +67,7 @@ HTML = """<!DOCTYPE html>
   </form>
 
   <small>⚠️ Only scan websites you own or have permission to test.</small>
-  <small>Scans may take a few minutes.</small>
+  <small>This Render version uses low memory settings.</small>
 
   {result}
 </body>
@@ -91,33 +89,39 @@ def scan():
     target = request.form.get("target", "").strip()
 
     if not target.startswith(("http://", "https://")):
-        error_message = "Error: Target must start with http:// or https://"
-        return HTML.format(result=f"<pre class='error'>{html.escape(error_message)}</pre>")
+        output = "Error: Target must start with http:// or https://"
+        return HTML.format(result=f"<pre class='error'>{html.escape(output)}</pre>")
 
     template_path = "templates/basic-detect.yaml"
 
     if not os.path.exists(template_path):
-        error_message = "Error: Template file not found. Make sure templates/basic-detect.yaml exists."
-        return HTML.format(result=f"<pre class='error'>{html.escape(error_message)}</pre>")
+        output = "Error: Template file not found. Make sure templates/basic-detect.yaml exists."
+        return HTML.format(result=f"<pre class='error'>{html.escape(output)}</pre>")
 
     cmd = [
         "nuclei",
         "-u", target,
         "-t", template_path,
         "-c", "1",
-        "-rl", "2",
-        "-timeout", "5",
+        "-rl", "1",
+        "-timeout", "3",
+        "-retries", "0",
         "-silent",
         "-duc",
-        "-json-export", "results/output.json",
+        "-no-stdin",
     ]
+
+    env = os.environ.copy()
+    env["GOMEMLIMIT"] = "256MiB"
+    env["GOGC"] = "50"
 
     try:
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            timeout=180
+            timeout=180,
+            env=env
         )
 
         output = result.stdout.strip()
@@ -135,7 +139,6 @@ def scan():
         output = f"Error: {e}"
 
     safe_output = html.escape(output)
-
     return HTML.format(result=f"<pre>{safe_output}</pre>")
 
 
