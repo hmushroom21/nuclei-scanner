@@ -1,5 +1,6 @@
 from flask import Flask, request
 import subprocess, os
+import html
 
 app = Flask(__name__)
 os.makedirs("results", exist_ok=True)
@@ -54,20 +55,28 @@ def scan():
         "-rl", "5",
         "-timeout", "5",
         "-silent",
-        "-no-update-check",
-        "-disable-update-check",
+        "-duc",
         "-json-export", "results/output.json",
     ]
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=240)
-        output = result.stdout.strip() or "Scan completed — no findings."
+
+        output = result.stdout.strip()
+
+        if not output:
+            output = result.stderr.strip()
+
+        if not output:
+            output = "Scan completed — no findings."
+
     except subprocess.TimeoutExpired:
-        output = "Scan timed out (4 min limit)."
+        output = "Scan timed out because it took more than 4 minutes."
     except Exception as e:
         output = f"Error: {e}"
 
-    return HTML.format(result=f"<pre>{output}</pre>")
+    safe_output = html.escape(output)
+    return HTML.format(result=f"<pre>{safe_output}</pre>")
 
 
 if __name__ == "__main__":
