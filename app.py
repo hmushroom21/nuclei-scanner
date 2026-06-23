@@ -23,7 +23,7 @@ HTML = """<!DOCTYPE html>
     <input name="target" placeholder="https://example.com" required>
     <button type="submit">Scan</button>
   </form>
-  <small>⚠️ Scans may take several minutes on the free tier.</small>
+  <small>⚠️ Scans may take a few minutes.</small>
   {result}
 </body>
 </html>"""
@@ -44,6 +44,7 @@ def scan():
     cmd = [
         "nuclei",
         "-u", target,
+        "-tags", "tech-detect",    # lightweight tag only — no full template library
         "-c", "3",
         "-rl", "5",
         "-timeout", "5",
