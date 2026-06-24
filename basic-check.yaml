@@ -1,0 +1,17 @@
+id: basic-http-check
+
+info:
+  name: Website Responded - Demo Security Check
+  author: student
+  severity: info
+  description: The target website responded. This is a demo check for the cloud scanner.
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}"
+
+    matchers:
+      - type: dsl
+        dsl:
+          - "status_code >= 100 && status_code < 600"
