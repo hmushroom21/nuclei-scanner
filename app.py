@@ -25,12 +25,14 @@ def severity_chart_data(findings):
     if not ordered:
         return []
     max_count = max(c for _, c in ordered)
+    max_bar_px = 140
     return [
         {
             "severity": sev,
             "count": count,
             "color": SEVERITY_COLORS.get(sev, "#999"),
             "pct": round(count / max_count * 100),
+            "height": max(round(count / max_count * max_bar_px), 4),
         }
         for sev, count in ordered
     ]
