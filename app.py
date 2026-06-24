@@ -5,14 +5,35 @@ from collections import Counter
 app = Flask(__name__)
 
 SEVERITY_ORDER = ["critical", "high", "medium", "low", "info", "unknown"]
+SEVERITY_COLORS = {
+    "critical": "#8b0000",
+    "high": "#e74c3c",
+    "medium": "#f39c12",
+    "low": "#3498db",
+    "info": "#95a5a6",
+    "unknown": "#7f8c8d",
+}
 
 
-def severity_counts(findings):
-    """Tally findings by severity, in a fixed display order."""
+def severity_chart_data(findings):
+    """Build (severity, count, color, pct) rows for a simple bar chart,
+    scaled relative to the largest bucket. No JS/CDN required."""
     counts = Counter(
         (f.get("info", {}).get("severity") or "unknown") for f in findings
     )
-    return {sev: counts[sev] for sev in SEVERITY_ORDER if counts.get(sev)}
+    ordered = [(sev, counts[sev]) for sev in SEVERITY_ORDER if counts.get(sev)]
+    if not ordered:
+        return []
+    max_count = max(c for _, c in ordered)
+    return [
+        {
+            "severity": sev,
+            "count": count,
+            "color": SEVERITY_COLORS.get(sev, "#999"),
+            "pct": round(count / max_count * 100),
+        }
+        for sev, count in ordered
+    ]
 
 
 @app.route("/")
@@ -58,7 +79,7 @@ def scan():
         target=target,
         findings=findings,
         stderr=r.stderr,
-        severity_counts=severity_counts(findings)
+        severity_chart=severity_chart_data(findings)
     )
 
 if __name__ == "__main__":
