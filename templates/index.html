@@ -1,103 +1,344 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Nuclei Security Scanner</title>
     <style>
-        .chart-wrap {
-            max-width: 420px;
+        :root {
+            --bg: #0d1117;
+            --panel: #161b22;
+            --panel-2: #1c2430;
+            --border: #2d3644;
+            --text: #e6edf3;
+            --muted: #8b97a7;
+            --accent: #2f81f7;
+            --accent-hover: #4b96ff;
+            --crit: #8b0000;
+            --high: #e74c3c;
+            --med: #f39c12;
+            --low: #3498db;
+            --info: #95a5a6;
+            --unknown: #7f8c8d;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            background: radial-gradient(1200px 600px at 50% -200px, #16202e 0%, var(--bg) 60%);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.5;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 48px 24px 80px;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 6px;
+        }
+
+        .brand-logo {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, var(--accent), #8957e5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            flex-shrink: 0;
+        }
+
+        h1 {
+            font-size: 26px;
+            margin: 0;
+            letter-spacing: -0.02em;
+        }
+
+        .subtitle {
+            color: var(--muted);
+            margin: 0 0 32px;
+            font-size: 14px;
+        }
+
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 24px;
             margin-bottom: 24px;
         }
+
+        form.scan-form {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        input[name="target"] {
+            flex: 1;
+            min-width: 220px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 12px 14px;
+            color: var(--text);
+            font-size: 15px;
+            outline: none;
+            transition: border-color .15s, box-shadow .15s;
+        }
+        input[name="target"]:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(47,129,247,.25);
+        }
+        input[name="target"]::placeholder { color: var(--muted); }
+
+        button[type="submit"] {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            padding: 12px 26px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background .15s;
+        }
+        button[type="submit"]:hover { background: var(--accent-hover); }
+
+        #msg {
+            margin: 14px 0 0;
+            color: var(--accent);
+            font-size: 14px;
+            min-height: 1em;
+        }
+
+        .results-head {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            margin: 8px 0 20px;
+            flex-wrap: wrap;
+        }
+        .results-head h2 { font-size: 19px; margin: 0; }
+        .results-head .target {
+            color: var(--accent);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 14px;
+            word-break: break-all;
+        }
+        .count-pill {
+            background: var(--panel-2);
+            border: 1px solid var(--border);
+            color: var(--muted);
+            border-radius: 999px;
+            padding: 2px 12px;
+            font-size: 13px;
+        }
+
+        .section-title {
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            color: var(--muted);
+            margin: 0 0 16px;
+        }
+
         .chart-bars {
             display: flex;
             align-items: flex-end;
-            gap: 16px;
-            height: 160px;
-            border-bottom: 2px solid #333;
-            padding: 0 8px;
+            gap: 22px;
+            height: 170px;
+            padding: 0 8px 0;
+            border-bottom: 1px solid var(--border);
         }
         .chart-bar-col {
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: flex-end;
-            width: 50px;
+            width: 56px;
         }
-        .chart-bar-count {
-            font-size: 12px;
-            font-weight: bold;
-            margin-bottom: 4px;
-        }
+        .chart-bar-count { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
         .chart-bar {
-            width: 32px;
-            border-radius: 3px 3px 0 0;
+            width: 38px;
+            border-radius: 5px 5px 0 0;
             min-height: 4px;
-            flex-shrink: 0;
+            transition: filter .15s;
         }
+        .chart-bar:hover { filter: brightness(1.2); }
         .chart-bar-label {
-            margin-top: 6px;
+            margin-top: 8px;
             font-size: 12px;
             text-transform: capitalize;
+            color: var(--muted);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        thead th {
+            text-align: left;
+            color: var(--muted);
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: .05em;
+            padding: 0 14px 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        tbody td {
+            padding: 14px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: top;
+        }
+        tbody tr:last-child td { border-bottom: none; }
+        tbody tr:hover { background: var(--panel-2); }
+        td.url {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 13px;
+            word-break: break-all;
+            color: var(--accent);
+        }
+        td.desc { color: var(--muted); max-width: 280px; }
+
+        .badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: capitalize;
+            color: #fff;
+        }
+        .sev-critical { background: var(--crit); }
+        .sev-high     { background: var(--high); }
+        .sev-medium   { background: var(--med); color: #1a1a1a; }
+        .sev-low      { background: var(--low); }
+        .sev-info     { background: var(--info); color: #1a1a1a; }
+        .sev-unknown  { background: var(--unknown); }
+
+        .empty {
+            text-align: center;
+            color: var(--muted);
+            padding: 32px 0;
+        }
+        .empty .ok { font-size: 34px; display: block; margin-bottom: 8px; }
+
+        details.stderr {
+            margin-top: 8px;
+        }
+        details.stderr summary {
+            cursor: pointer;
+            color: var(--muted);
+            font-size: 13px;
+        }
+        details.stderr pre {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 14px;
+            overflow-x: auto;
+            font-size: 12px;
+            color: var(--muted);
+            margin-top: 12px;
         }
     </style>
 </head>
 <body>
+<div class="container">
 
-<h1>Nuclei Security Scanner</h1>
-
-<form action="/scan" method="post" onsubmit="document.getElementById('msg').innerHTML='Scanning... please wait';">
-    <input name="target" placeholder="https://example.com" required>
-    <button type="submit">Scan</button>
-</form>
-
-<p id="msg"></p>
-
-{% if target %}
-    <h2>Results for {{ target }}</h2>
-
-    {% if findings %}
-        {% if severity_chart %}
-        <div class="chart-wrap">
-            <strong>Findings by severity</strong>
-            <div class="chart-bars">
-                {% for row in severity_chart %}
-                <div class="chart-bar-col">
-                    <div class="chart-bar-count">{{ row.count }}</div>
-                    <div class="chart-bar" style="height: {{ row.height }}px; background-color: {{ row.color }};"></div>
-                    <div class="chart-bar-label">{{ row.severity }}</div>
-                </div>
-                {% endfor %}
-            </div>
+    <div class="brand">
+        <div class="brand-logo">🛡️</div>
+        <div>
+            <h1>Nuclei Security Scanner</h1>
         </div>
+    </div>
+    <p class="subtitle">Scan a target for missing HTTP security headers.</p>
+
+    <div class="card">
+        <form class="scan-form" action="/scan" method="post"
+              onsubmit="document.getElementById('msg').textContent='⏳ Scanning… please wait';">
+            <input name="target" placeholder="https://example.com" required>
+            <button type="submit">Scan</button>
+        </form>
+        <p id="msg"></p>
+    </div>
+
+    {% if target %}
+    <div class="card">
+        <div class="results-head">
+            <h2>Results</h2>
+            <span class="target">{{ target }}</span>
+            {% if findings %}<span class="count-pill">{{ findings|length }} finding{{ '' if findings|length == 1 else 's' }}</span>{% endif %}
+        </div>
+
+        {% if findings %}
+            {% if severity_chart %}
+            <div style="margin-bottom: 32px;">
+                <p class="section-title">Findings by severity</p>
+                <div class="chart-bars">
+                    {% for row in severity_chart %}
+                    <div class="chart-bar-col">
+                        <div class="chart-bar-count">{{ row.count }}</div>
+                        <div class="chart-bar" style="height: {{ row.height }}px; background-color: {{ row.color }};"></div>
+                        <div class="chart-bar-label">{{ row.severity }}</div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Severity</th>
+                        <th>Template</th>
+                        <th>Missing Header</th>
+                        <th>URL</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for f in findings %}
+                    {% set sev = f.get("info", {}).get("severity", "") or "unknown" %}
+                    <tr>
+                        <td><span class="badge sev-{{ sev }}">{{ sev }}</span></td>
+                        <td>{{ f.get("info", {}).get("name", "") }}</td>
+                        <td>{{ f.get("matcher-name", "") }}</td>
+                        <td class="url">{{ f.get("matched-at", "") }}</td>
+                        <td class="desc">{{ f.get("info", {}).get("description", "") }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="empty">
+                <span class="ok">✅</span>
+                No missing security headers found.
+            </div>
         {% endif %}
 
-        <table border="1" cellpadding="6">
-            <tr>
-                <th>Severity</th>
-                <th>Template</th>
-                <th>Missing Header</th>
-                <th>URL</th>
-                <th>Description</th>
-            </tr>
-
-            {% for f in findings %}
-            <tr>
-                <td>{{ f.get("info", {}).get("severity", "") }}</td>
-                <td>{{ f.get("info", {}).get("name", "") }}</td>
-                <td>{{ f.get("matcher-name", "") }}</td>
-                <td>{{ f.get("matched-at", "") }}</td>
-                <td>{{ f.get("info", {}).get("description", "") }}</td>
-            </tr>
-            {% endfor %}
-        </table>
-    {% else %}
-        <p>No missing security headers found.</p>
+        {% if stderr %}
+            <details class="stderr">
+                <summary>Nuclei messages</summary>
+                <pre>{{ stderr }}</pre>
+            </details>
+        {% endif %}
+    </div>
     {% endif %}
 
-    {% if stderr %}
-        <h3>Nuclei messages</h3>
-        <pre>{{ stderr }}</pre>
-    {% endif %}
-{% endif %}
-
+</div>
 </body>
 </html>
