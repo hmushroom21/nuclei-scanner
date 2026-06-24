@@ -1,283 +1,65 @@
-from flask import Flask, request
-import subprocess
-import json
-import shutil
-import socket
-import ipaddress
-import html
-import os
-import threading
-from urllib.parse import urlparse
+from flask import Flask, request, render_template
+import subprocess, os, time, json
+from collections import Counter
 
 app = Flask(__name__)
 
-HTML = """<!DOCTYPE html>
-<html>
-<head>
-  <title>Website Scanner</title>
-  <style>
-    body {{
-      font-family: Arial, sans-serif;
-      max-width: 750px;
-      margin: 60px auto;
-      padding: 0 20px;
-      background: #f7f7f7;
-    }}
-    .card {{
-      background: white;
-      padding: 30px;
-      border-radius: 12px;
-      box-shadow: 0 4px 15px rgba(0,0,0,0.08);
-    }}
-    h1 {{
-      margin-top: 0;
-    }}
-    input {{
-      width: 100%;
-      padding: 12px;
-      margin-bottom: 15px;
-      box-sizing: border-box;
-      font-size: 16px;
-      border: 1px solid #ccc;
-      border-radius: 6px;
-    }}
-    button {{
-      padding: 10px 25px;
-      font-size: 16px;
-      cursor: pointer;
-      border: none;
-      border-radius: 6px;
-      background: #111;
-      color: white;
-    }}
-    pre {{
-      background: #111;
-      color: #00ff66;
-      padding: 15px;
-      border-radius: 8px;
-      white-space: pre-wrap;
-      word-wrap: break-word;
-      font-size: 0.9em;
-      margin-top: 25px;
-    }}
-    small {{
-      color: #777;
-      display: block;
-      margin-top: 10px;
-    }}
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>Website Scanner</h1>
-    <form method="post" action="/scan">
-      <input name="target" placeholder="https://example.com" required>
-      <button type="submit">Scan</button>
-    </form>
-    <small>Only scan websites you own or have permission to test.</small>
-    <small>This app is deployed using GitHub and Render. Powered by Nuclei.</small>
-    {result}
-  </div>
-</body>
-</html>"""
-
-# Severities to run by default. Keep this conservative for a public-facing,
-# unauthenticated form — "critical/high" only avoids turning this into a
-# heavyweight all-templates scan against arbitrary third-party hosts.
-DEFAULT_SEVERITIES = "info,low,medium,high,critical"
-NUCLEI_TIMEOUT_SECONDS = 120
-
-# --- Memory budget controls --------------------------------------------
-# This is built to fit a ~500MB RAM host (e.g. Render's free plan). Nuclei's
-# memory use scales with (a) how many templates it loads and (b) how many
-# requests it runs in parallel, so we keep both small, and we exclude
-# templates flagged as resource-heavy/risky (fuzz, dos, intrusive). We also
-# serialize scans with a semaphore so two visitors can't each spawn a nuclei
-# process at once and double the peak memory.
-NUCLEI_CONCURRENCY = "3"       # parallel requests per scan (-c)
-NUCLEI_BULK_SIZE = "3"         # hosts processed in parallel per template (-bulk-size)
-NUCLEI_RATE_LIMIT = "20"       # requests/sec cap
-NUCLEI_EXCLUDE_TAGS = "fuzz,dos,intrusive"
-MAX_CONCURRENT_SCANS = int(os.environ.get("MAX_CONCURRENT_SCANS", "1"))
-SCAN_QUEUE_WAIT_SECONDS = 5  # how long a request waits for a free scan slot
-
-_scan_semaphore = threading.Semaphore(MAX_CONCURRENT_SCANS)
+SEVERITY_ORDER = ["critical", "high", "medium", "low", "info", "unknown"]
 
 
-def is_private_target(hostname: str) -> bool:
-    """Best-effort SSRF guard: resolve the hostname and reject anything
-    pointing at loopback/private/link-local/reserved address space.
-    This does NOT fully eliminate SSRF/DNS-rebinding risk, just blocks
-    the obvious cases of someone pointing the scanner at internal infra."""
-    try:
-        infos = socket.getaddrinfo(hostname, None)
-    except socket.gaierror:
-        return False  # let the request fail naturally later
-    for info in infos:
-        ip = info[4][0]
-        try:
-            addr = ipaddress.ip_address(ip)
-        except ValueError:
-            continue
-        if (
-            addr.is_private
-            or addr.is_loopback
-            or addr.is_link_local
-            or addr.is_reserved
-            or addr.is_multicast
-        ):
-            return True
-    return False
-
-
-def run_nuclei_scan(target: str):
-    """Run the real ProjectDiscovery Nuclei scanner against target and
-    return a list of parsed JSON findings (possibly empty), plus an error
-    string if something went wrong."""
-    nuclei_path = shutil.which("nuclei")
-    if not nuclei_path:
-        return None, "Nuclei binary not found on this server. See setup notes below."
-
-    cmd = [
-        nuclei_path,
-        "-u", target,
-        "-jsonl",          # one JSON object per line
-        "-silent",
-        "-severity", DEFAULT_SEVERITIES,
-        "-exclude-tags", NUCLEI_EXCLUDE_TAGS,
-        "-timeout", "8",                       # per-request timeout (seconds)
-        "-rate-limit", NUCLEI_RATE_LIMIT,
-        "-c", NUCLEI_CONCURRENCY,
-        "-bulk-size", NUCLEI_BULK_SIZE,
-        "-no-color",
-        "-no-interactsh",          # skip the interactsh client (extra goroutines/memory)
-        "-disable-update-check",   # don't phone home to check for a newer nuclei version
-    ]
-
-    # GOGC controls how aggressively Go's garbage collector runs. Lowering it
-    # trades a bit of CPU for a noticeably smaller peak memory footprint,
-    # which matters more than CPU time on a capped-RAM free-tier host.
-    scan_env = dict(os.environ)
-    scan_env.setdefault("GOGC", "20")
-
-    if not _scan_semaphore.acquire(timeout=SCAN_QUEUE_WAIT_SECONDS):
-        return None, "Server is busy running another scan. Please try again shortly."
-
-    try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=NUCLEI_TIMEOUT_SECONDS,
-            env=scan_env,
-        )
-    except subprocess.TimeoutExpired:
-        return None, f"Nuclei scan timed out after {NUCLEI_TIMEOUT_SECONDS}s."
-    except Exception as e:
-        return None, f"Failed to run nuclei: {e}"
-    finally:
-        _scan_semaphore.release()
-
-    findings = []
-    for line in proc.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            findings.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-
-    # Surface stderr only if nuclei produced nothing at all and exited oddly,
-    # so genuine "no vulnerabilities found" runs don't look like errors.
-    if not findings and proc.returncode != 0 and proc.stderr.strip():
-        return [], proc.stderr.strip()[-2000:]
-
-    return findings, None
-
-
-def format_findings(target, findings, stderr_note):
-    lines = []
-    lines.append("===== NUCLEI SCAN RESULT =====")
-    lines.append(f"Target URL: {target}")
-    lines.append(f"Severities checked: {DEFAULT_SEVERITIES}")
-    lines.append("")
-
-    if not findings:
-        lines.append("No findings reported by Nuclei for the selected severities.")
-        if stderr_note:
-            lines.append("")
-            lines.append("===== NUCLEI STDERR (tail) =====")
-            lines.append(stderr_note)
-        return "\n".join(lines)
-
-    lines.append(f"Total findings: {len(findings)}")
-    lines.append("")
-    lines.append("===== FINDINGS =====")
-    for f in findings:
-        info = f.get("info", {})
-        name = info.get("name", "Unknown")
-        severity = info.get("severity", "unknown").upper()
-        template_id = f.get("template-id", "unknown-template")
-        matched_at = f.get("matched-at", target)
-        description = info.get("description", "").strip()
-        lines.append(f"[{severity}] {name} ({template_id})")
-        lines.append(f"  Matched at: {matched_at}")
-        if description:
-            lines.append(f"  {description}")
-        lines.append("")
-
-    return "\n".join(lines).rstrip()
+def severity_counts(findings):
+    """Tally findings by severity, in a fixed display order."""
+    counts = Counter(
+        (f.get("info", {}).get("severity") or "unknown") for f in findings
+    )
+    return {sev: counts[sev] for sev in SEVERITY_ORDER if counts.get(sev)}
 
 
 @app.route("/")
 def home():
-    return HTML.format(result="")
+    return render_template("index.html")
 
-
-@app.route("/health")
-def health():
-    return "ok", 200
-
-
-@app.route("/scan", methods=["GET", "POST"])
+@app.route("/scan", methods=["POST"])
 def scan():
-    # Someone hit /scan directly (typed URL, refreshed, bookmarked, a bot
-    # probing routes, etc.) instead of submitting the form. Send them back
-    # to the form instead of a bare 405.
-    if request.method == "GET":
-        return HTML.format(result="<pre>Use the form above to start a scan.</pre>")
+    target = request.form["target"]
 
-    target = request.form.get("target", "").strip()
+    os.makedirs("results", exist_ok=True)
+    output = f"results/output_{int(time.time())}.jsonl"
 
-    if not target.startswith(("http://", "https://")):
-        output = "Error: URL must start with http:// or https://"
-        return HTML.format(result=f"<pre>{html.escape(output)}</pre>")
+    cmd = [
+    "nuclei",
+    "-u", target,
+    "-t", "/root/nuclei-templates/http/misconfiguration/http-missing-security-headers.yaml",
+    "-jsonl",
+    "-o", output,
+    "-c", "1",
+    "-rl", "1",
+    "-timeout", "10",
+    "-retries", "0",
+    "-silent",
+    "-duc"
+]
 
-    parsed = urlparse(target)
-    if not parsed.netloc:
-        output = "Error: Invalid URL."
-        return HTML.format(result=f"<pre>{html.escape(output)}</pre>")
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=40)
+    except Exception as e:
+        return f"Scan error: {e}"
 
-    hostname = parsed.hostname or ""
-    if is_private_target(hostname):
-        output = "Error: Scanning private, loopback, or link-local addresses is not allowed."
-        return HTML.format(result=f"<pre>{html.escape(output)}</pre>")
+    findings = []
 
-    findings, error = run_nuclei_scan(target)
+    if os.path.exists(output):
+        with open(output) as f:
+            for line in f:
+                if line.strip():
+                    findings.append(json.loads(line))
 
-    if findings is None:
-        setup_note = (
-            "\n\n===== SETUP NEEDED =====\n"
-            "The 'nuclei' binary was not found on PATH. Install it and templates, "
-            "then redeploy. See the Dockerfile / setup notes provided alongside this file."
-        )
-        output = f"Error: {error}{setup_note if 'not found' in (error or '') else ''}"
-        return HTML.format(result=f"<pre>{html.escape(output)}</pre>")
-
-    output = format_findings(target, findings, error)
-    return HTML.format(result=f"<pre>{html.escape(output)}</pre>")
-
+    return render_template(
+        "index.html",
+        target=target,
+        findings=findings,
+        stderr=r.stderr,
+        severity_counts=severity_counts(findings)
+    )
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
