@@ -6,6 +6,7 @@ import socket
 import ipaddress
 import html
 import os
+import threading
 from urllib.parse import urlparse
 
 app = Flask(__name__)
@@ -86,6 +87,22 @@ HTML = """<!DOCTYPE html>
 DEFAULT_SEVERITIES = "info,low,medium,high,critical"
 NUCLEI_TIMEOUT_SECONDS = 120
 
+# --- Memory budget controls --------------------------------------------
+# This is built to fit a ~500MB RAM host (e.g. Render's free plan). Nuclei's
+# memory use scales with (a) how many templates it loads and (b) how many
+# requests it runs in parallel, so we keep both small, and we exclude
+# templates flagged as resource-heavy/risky (fuzz, dos, intrusive). We also
+# serialize scans with a semaphore so two visitors can't each spawn a nuclei
+# process at once and double the peak memory.
+NUCLEI_CONCURRENCY = "3"       # parallel requests per scan (-c)
+NUCLEI_BULK_SIZE = "3"         # hosts processed in parallel per template (-bulk-size)
+NUCLEI_RATE_LIMIT = "20"       # requests/sec cap
+NUCLEI_EXCLUDE_TAGS = "fuzz,dos,intrusive"
+MAX_CONCURRENT_SCANS = int(os.environ.get("MAX_CONCURRENT_SCANS", "1"))
+SCAN_QUEUE_WAIT_SECONDS = 5  # how long a request waits for a free scan slot
+
+_scan_semaphore = threading.Semaphore(MAX_CONCURRENT_SCANS)
+
 
 def is_private_target(hostname: str) -> bool:
     """Best-effort SSRF guard: resolve the hostname and reject anything
@@ -127,11 +144,24 @@ def run_nuclei_scan(target: str):
         "-jsonl",          # one JSON object per line
         "-silent",
         "-severity", DEFAULT_SEVERITIES,
-        "-timeout", "10",       # per-request timeout (seconds)
-        "-rate-limit", "50",    # requests/sec cap
-        "-c", "10",              # concurrency
+        "-exclude-tags", NUCLEI_EXCLUDE_TAGS,
+        "-timeout", "8",                       # per-request timeout (seconds)
+        "-rate-limit", NUCLEI_RATE_LIMIT,
+        "-c", NUCLEI_CONCURRENCY,
+        "-bulk-size", NUCLEI_BULK_SIZE,
         "-no-color",
+        "-no-interactsh",          # skip the interactsh client (extra goroutines/memory)
+        "-disable-update-check",   # don't phone home to check for a newer nuclei version
     ]
+
+    # GOGC controls how aggressively Go's garbage collector runs. Lowering it
+    # trades a bit of CPU for a noticeably smaller peak memory footprint,
+    # which matters more than CPU time on a capped-RAM free-tier host.
+    scan_env = dict(os.environ)
+    scan_env.setdefault("GOGC", "20")
+
+    if not _scan_semaphore.acquire(timeout=SCAN_QUEUE_WAIT_SECONDS):
+        return None, "Server is busy running another scan. Please try again shortly."
 
     try:
         proc = subprocess.run(
@@ -139,11 +169,14 @@ def run_nuclei_scan(target: str):
             capture_output=True,
             text=True,
             timeout=NUCLEI_TIMEOUT_SECONDS,
+            env=scan_env,
         )
     except subprocess.TimeoutExpired:
         return None, f"Nuclei scan timed out after {NUCLEI_TIMEOUT_SECONDS}s."
     except Exception as e:
         return None, f"Failed to run nuclei: {e}"
+    finally:
+        _scan_semaphore.release()
 
     findings = []
     for line in proc.stdout.splitlines():
@@ -163,7 +196,7 @@ def run_nuclei_scan(target: str):
     return findings, None
 
 
-def format_findings(target: str, findings: list, stderr_note: str | None) -> str:
+def format_findings(target, findings, stderr_note):
     lines = []
     lines.append("===== NUCLEI SCAN RESULT =====")
     lines.append(f"Target URL: {target}")
@@ -207,8 +240,14 @@ def health():
     return "ok", 200
 
 
-@app.route("/scan", methods=["POST"])
+@app.route("/scan", methods=["GET", "POST"])
 def scan():
+    # Someone hit /scan directly (typed URL, refreshed, bookmarked, a bot
+    # probing routes, etc.) instead of submitting the form. Send them back
+    # to the form instead of a bare 405.
+    if request.method == "GET":
+        return HTML.format(result="<pre>Use the form above to start a scan.</pre>")
+
     target = request.form.get("target", "").strip()
 
     if not target.startswith(("http://", "https://")):

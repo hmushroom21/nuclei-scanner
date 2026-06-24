@@ -30,4 +30,14 @@ COPY app.py .
 ENV PORT=10000
 EXPOSE 10000
 
-CMD ["python", "app.py"]
+# GOGC=20 makes Go's garbage collector run more often in exchange for a
+# lower peak heap — worth it on a RAM-capped (e.g. 512MB) host. This applies
+# to the nuclei subprocess too since it inherits the container environment.
+ENV GOGC=20
+
+# One gunicorn worker keeps the baseline Python footprint to a single
+# process. Threads (not extra workers) handle concurrent requests, and the
+# in-app semaphore (MAX_CONCURRENT_SCANS) makes sure only one nuclei process
+# runs at a time regardless of how many requests come in. Timeout is set
+# above NUCLEI_TIMEOUT_SECONDS so gunicorn doesn't kill a worker mid-scan.
+CMD gunicorn --bind 0.0.0.0:${PORT:-10000} --workers 1 --threads 4 --timeout 150 app:app
