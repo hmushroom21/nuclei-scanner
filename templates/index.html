@@ -20,7 +20,6 @@
             flex-direction: column;
             align-items: center;
             justify-content: flex-end;
-            height: 100%;
             width: 50px;
         }
         .chart-bar-count {
@@ -31,7 +30,8 @@
         .chart-bar {
             width: 32px;
             border-radius: 3px 3px 0 0;
-            min-height: 2px;
+            min-height: 4px;
+            flex-shrink: 0;
         }
         .chart-bar-label {
             margin-top: 6px;
@@ -62,7 +62,7 @@
                 {% for row in severity_chart %}
                 <div class="chart-bar-col">
                     <div class="chart-bar-count">{{ row.count }}</div>
-                    <div class="chart-bar" style="height: {{ row.pct }}%; background-color: {{ row.color }};"></div>
+                    <div class="chart-bar" style="height: {{ row.height }}px; background-color: {{ row.color }};"></div>
                     <div class="chart-bar-label">{{ row.severity }}</div>
                 </div>
                 {% endfor %}
